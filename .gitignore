@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .venv/
 logs/
+installer/build/
+installer/Output/
+*.code-workspace

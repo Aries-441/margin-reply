@@ -59,11 +59,15 @@ App → **Credentials & Basic Info** (凭证与基础信息):
 - App ID (`cli_...`) → `FEISHU_COMMENT_BOT_APP_ID`
 - App Secret → `FEISHU_COMMENT_BOT_APP_SECRET`
 
-Put them in `.env`. Do not paste them into a chat, a shell command, or a commit.
+With the installer, enter both in the setup wizard — it writes `.env` for you. From source, put them in `.env`. Do not paste them into a chat, a shell command, or a commit.
+
+Changing the app later? Edit `.env` in the install directory (`%LocalAppData%\FeishuDocClarifier`) and restart the task, or run the installer again — it pre-fills the previous values.
 
 ## 6. Give the bot access to documents
 
 Feishu bots have no tenant-wide document access. For each document:
+
+> Only add the bot to documents whose readers/commenters you trust. The bot has no prompt-injection protection — anyone who can comment can try to steer the model or make it quote the document into the thread. See the security notice in [README.md](../README.md#security-notice-read-this-first).
 
 1. Open the docx.
 2. **Share** → add collaborator → search the bot's name.
@@ -90,4 +94,4 @@ The second one returns the bot at the top level (`"bot": {...}`) — there is no
 - [ ] 10 tenant scopes imported
 - [ ] Version published (and approved, if the tenant requires it)
 - [ ] Bot added as a collaborator on the test document
-- [ ] App ID + secret in `.env`
+- [ ] App ID + secret entered (installer wizard, or `.env` when running from source)

@@ -4,6 +4,8 @@ This page is written **for an AI coding agent** (Claude Code, Codex, ChatGPT wit
 
 Target environment: Windows 10/11, PowerShell 5.1, Python 3.12.
 
+> Deploying from a release build? The `FeishuDocClarifier-Setup-*.exe` installer does Phases 1 and 5 itself and needs no Python on the target machine — see [README.zh-CN.md](../README.zh-CN.md#安装包推荐无需-python). The phases below are the source-based path; do not mix the two on one machine.
+
 ## Ground rules
 
 1. **Never print secrets.** Do not `Get-Content .env`, do not `echo` the app secret or API key, do not put them in a command line, a git commit, or your reply. If you must check that a value exists, check its length only.
@@ -39,7 +41,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m unittest -v test_bot
 ```
 
-**Acceptance:** `Ran 15 tests ... OK`. If tests fail, the environment is wrong or the repository is dirty — do not proceed.
+**Acceptance:** `Ran 27 tests ... OK`. If tests fail, the environment is wrong or the repository is dirty — do not proceed.
 
 ## Phase 2 — Feishu app (human)
 
@@ -116,7 +118,7 @@ Unregister-ScheduledTask -TaskName FeishuDocClarifier -Confirm:$false
 Report each line as pass/fail:
 
 - [ ] Python environment created, dependencies installed
-- [ ] `unittest` — 15 tests OK
+- [ ] `unittest` — 27 tests OK
 - [ ] `.env` filled (values not printed anywhere)
 - [ ] Foreground run reached `connected to wss://`
 - [ ] A real @-mention got a correct reply in the thread

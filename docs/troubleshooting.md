@@ -15,6 +15,7 @@ Start with the two log files:
 | Did the bot already answer this event? | Events are remembered in `.seen_events.json` for 7 days. A redelivered event will not be answered twice. |
 | Was the bot added to this document? | Share → collaborators. Without it, the API returns a permission error (`106xxxx`) in `bot.log`. |
 | Is the event subscribed? | Console → Events and callbacks. Scope/event changes need a **new published version**. |
+| Are you allowed to use it? | Default `TRUST_MODE=owner` answers only the document owner. Look for `is not allowed to use the bot (TRUST_MODE=…)` in `bot.log`, copy your open_id into `FEISHU_COMMENT_BOT_ALLOWED_USERS`, set `TRUST_MODE=allowlist`, restart the task, then comment again. |
 
 ## Connection problems
 
@@ -23,6 +24,8 @@ Start with the two log files:
 | `SSL: UNEXPECTED_EOF_WHILE_READING` once, then `connected to wss://…` | Transient TLS failure | Nothing — the SDK reconnects by itself. |
 | `connect failed` repeating | No route to `open.feishu.cn` / `*.feishu.cn` on 443 | Check corporate proxy/firewall. `curl.exe -s -o NUL -w "%{http_code}" https://open.feishu.cn/open-apis/` should print a status. |
 | `missing required environment variable: FEISHU_COMMENT_BOT_APP_ID` | `.env` not found or not filled | The bot reads `.env` from the project root. Check the file name is exactly `.env`. |
+| `cannot find agent command 'x'` | `FEISHU_COMMENT_BOT_AGENT_COMMAND` is misspelled, or the scheduled task's PATH lacks the CLI | Use an absolute path to the `.exe`. |
+| `resolves to a batch file (…cmd)` | The command resolved to an npm `.cmd` shim | Point the command at the CLI's native `.exe`; batch files are refused because they re-parse the comment text as command-line syntax. |
 | `code=10003 … invalid param` | Request sent without a JSON `Content-Type` | A code problem, not configuration — report it with the log line. |
 | `code=99991663` / `99991661` / `99991668` | Tenant token invalid/expired | The client refreshes and retries once. If it persists, the app secret is wrong or the app was not published. |
 
@@ -35,13 +38,29 @@ Start with the two log files:
 | `99991663` | Token invalid | Check app ID/secret; republish the app. |
 | `10003` | Invalid parameter | Usually a missing `Content-Type` or `file_type`. |
 
+## Installer problems
+
+The installer path uses `%LocalAppData%\FeishuDocClarifier`; logs are in its `logs\` subfolder (Start menu → 查看机器人日志).
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| SmartScreen blocks the `.exe` | The installer is not code-signed | More info → Run anyway. Sign the build for wider distribution. |
+| Wizard advanced but the bot never answers | Feishu credentials wrong, or the app version was never published | Check `bot.log` for `app_id is invalid` / `99991663`; fix the app in the console and republish. |
+| Silent install produced an empty `.env` | No `/APPID` etc. were passed (silent mode skips the dialogs) | Re-run with the parameters, or edit `%LocalAppData%\FeishuDocClarifier\.env` and restart the task. |
+| Start menu shortcut does nothing | Another instance already holds the single-instance mutex | Check `Get-ScheduledTask FeishuDocClarifier`; the running task is enough. |
+| Uninstall leaves the folder behind | The bot process was busy writing logs | Run `uninstall-task.ps1` first, then uninstall again. |
+| Scheduled task still exists after uninstall | The uninstaller ran while the task was disabled/protected | `Unregister-ScheduledTask -TaskName FeishuDocClarifier -Confirm:$false` |
+
+To build or re-test the package, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## Autostart problems
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `runner.log` says `starting bot` but `bot.log` never grows | Python crashes before logging starts, or the path is wrong | Run `.\.venv\Scripts\python.exe -u bot.py` in the foreground to see the error. |
+| `runner.log` says `starting bot` but `bot.log` never grows | Python crashes before logging starts, or the path is wrong | Run `runtime\python.exe -u bot.py` (installer) or `.\.venv\Scripts\python.exe -u bot.py` (source) in the foreground to see the error. |
 | `bot exited code=-1` right after start | The wrapper killed it, or it crashed | Check `bot.log`; re-run in the foreground. |
-| `找不到 …python.exe` thrown by `run.ps1` | `.venv` missing | Create it: `python -m venv .venv` + install requirements. |
+| `找不到 Python 运行时` thrown by `run.ps1` | Neither `runtime\python.exe` nor `.venv` exists | Reinstall the package, or create `.venv`: `python -m venv .venv` + install requirements. |
+| `app_id is invalid` right after start | Wrong app ID, or the app was never published | Fix the credentials in `.env`, republish the app, restart the task. |
 | Task exists but never runs | Trigger is "at logon" for a different user, or the project folder was moved | Re-run `install-task.ps1` from the current project root; it stores absolute paths. |
 | Two bots fighting over the connection | Single-instance guard bypassed (e.g. launched manually plus the task) | Keep one: stop the manual process, or stop the task. |
 

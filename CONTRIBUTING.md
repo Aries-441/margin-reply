@@ -18,6 +18,19 @@ Thanks for taking a look. This is a small, single-file bot; keep changes small a
 
 3. If you change a Feishu API call, note it in `docs/architecture.md` — that page exists so the next person does not rediscover the same traps.
 
+## The Windows installer
+
+`build-installer.ps1` stages the project plus a Python 3.12 embeddable runtime into `installer\build\app`, then compiles `installer\FeishuDocClarifier.iss` with Inno Setup 6:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1
+```
+
+- Downloads (`python-<ver>-embed-amd64.zip`, `get-pip.py`) are cached in `installer\build\downloads`; the runtime and pip dependencies are staged into `installer\build\runtime`. Reuse a staged runtime with `-SkipRuntime`.
+- `installer\build\` and `installer\Output\` are gitignored; the compiled `.exe` is the release artifact.
+- The wizard code lives in the `[Code]` section of the `.iss`. Silent-install parameters (`/APPID`, `/BACKEND`, …) are parsed there — keep them documented in both READMEs.
+- After changing any `.ps1` that the package ships, keep the file **UTF-8 with BOM** (PowerShell 5.1 reads BOM-less files as ANSI and garbles Chinese).
+
 ## Scope
 
 The bot intentionally stays:
