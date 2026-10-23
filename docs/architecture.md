@@ -13,6 +13,7 @@ on_comment()            read header.event_id, put (event_id, event) on a queue
 worker()  ×2            process_comment()
   ├─ already_seen(event_id)?                  → drop
   ├─ from_user == bot? / not @bot?            → drop
+  ├─ docx and not trusted?                    → drop (owner / allowlist, see below)
   ├─ POST comments/batch_query                → comment, is_solved, is_whole
   ├─ pick text: reply_id (add_reply) or first reply
   ├─ GET docx raw_content                     → 30k chars, head + tail
@@ -52,6 +53,15 @@ There is no `event.event_id` and no `mentions` array. @-detection uses `to_user_
 | Reply in thread | `POST /drive/v1/files/{token}/comments/{comment_id}/replies?file_type=…` |
 | Whole-document comment | `POST /drive/v1/files/{token}/new_comments` with `{"file_type":"docx","reply_elements":[…]}` |
 | Document text | `GET /docx/v1/documents/{token}/raw_content` |
+| Document owner | `POST /drive/v1/metas/batch_query?user_id_type=open_id` with `{"request_docs":[{"doc_token":…,"doc_type":…}]}` → `data.metas[0].owner_id` |
+
+## Trust policy
+
+`FEISHU_COMMENT_BOT_TRUST_MODE` is `owner` by default (only the document owner gets an answer), `allowlist` (only `FEISHU_COMMENT_BOT_ALLOWED_USERS`, an empty list denies everyone), or `any`.
+
+The owner lookup uses the metadata endpoint above, so it needs `drive:drive.metadata:readonly`, which is already in the scope list. Successful lookups are cached per `(doc_token, doc_type)` for 10 minutes; failures and empty `owner_id` are **not** cached and deny the comment. `allowlist` and `any` short-circuit before the lookup, so a metadata outage cannot lock out explicitly allowed users.
+
+Only `docx` comments are gated — other file types get the static "not supported" reply and never reach a model.
 
 ## Traps (all of these were hit in practice)
 

@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -17,15 +18,25 @@ class StubClient:
 
 
 class FakeFeishuClient:
-    def __init__(self, comment):
+    def __init__(self, comment, owner="ou_user"):
         self.comment_data = comment
+        self.owner = owner
+        self.owner_calls = 0
+        self.comments = []
         self.replied = []
         self.whole_comments = []
 
     def bot_open_id(self):
         return "ou_bot"
 
+    def document_owner(self, file_token, file_type):
+        self.owner_calls += 1
+        if isinstance(self.owner, Exception):
+            raise self.owner
+        return self.owner
+
     def comment(self, file_token, comment_id, file_type):
+        self.comments.append((file_token, comment_id, file_type))
         return self.comment_data
 
     def document_text(self, file_token):
@@ -46,6 +57,13 @@ class BotTest(unittest.TestCase):
         self._temp = tempfile.TemporaryDirectory()
         self._old_seen = bot.SEEN
         bot.SEEN = Path(self._temp.name) / "seen.json"
+        # bot.py 在 import 时跑过 load_dotenv()，开发者本机的 .env 不能影响测试。
+        env = patch.dict(os.environ, {
+            "FEISHU_COMMENT_BOT_TRUST_MODE": "owner",
+            "FEISHU_COMMENT_BOT_ALLOWED_USERS": "",
+        })
+        env.start()
+        self.addCleanup(env.stop)
 
     def tearDown(self):
         bot.SEEN = self._old_seen
@@ -187,6 +205,123 @@ class BotTest(unittest.TestCase):
                 patch.object(bot, "answer", return_value="不该出现"):
             bot.process_comment("evt-3", event)
         self.assertEqual(fake.replied, [])
+
+    def test_stranger_is_ignored_in_owner_mode(self):
+        fake = FakeFeishuClient(self.make_comment())
+        event = self.make_event({"from_user_id": {"open_id": "ou_stranger"}})
+        with patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="不该出现"):
+            bot.process_comment("evt-stranger", event)
+        self.assertEqual(fake.replied, [])
+        self.assertEqual(fake.comments, [])  # 连评论内容都不去查
+        self.assertTrue(bot.already_seen("evt-stranger"))
+
+    def test_allowlist_overrides_owner(self):
+        fake = FakeFeishuClient(self.make_comment())
+        event = self.make_event({"from_user_id": {"open_id": "ou_colleague"}})
+        with patch.dict(os.environ, {
+            "FEISHU_COMMENT_BOT_TRUST_MODE": "allowlist",
+            "FEISHU_COMMENT_BOT_ALLOWED_USERS": "ou_me, ou_colleague",
+        }), patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="这是答案"):
+            bot.process_comment("evt-allow", event)
+        self.assertEqual(fake.replied, [("file", "docx", "c1", "这是答案")])
+        self.assertEqual(fake.owner_calls, 0)  # 白名单命中就不查所有者
+
+    def test_empty_allowlist_denies_everyone(self):
+        fake = FakeFeishuClient(self.make_comment())
+        with patch.dict(os.environ, {
+            "FEISHU_COMMENT_BOT_TRUST_MODE": "allowlist",
+            "FEISHU_COMMENT_BOT_ALLOWED_USERS": "",
+        }), patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="不该出现"):
+            bot.process_comment("evt-empty", self.make_event())
+        self.assertEqual(fake.replied, [])
+
+    def test_unknown_trust_mode_denies_everyone(self):
+        fake = FakeFeishuClient(self.make_comment())
+        with patch.dict(os.environ, {"FEISHU_COMMENT_BOT_TRUST_MODE": "trusted"}), \
+                patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="不该出现"):
+            bot.process_comment("evt-typo", self.make_event())
+        self.assertEqual(fake.replied, [])
+
+    def test_any_mode_allows_stranger(self):
+        fake = FakeFeishuClient(self.make_comment())
+        event = self.make_event({"from_user_id": {"open_id": "ou_stranger"}})
+        with patch.dict(os.environ, {"FEISHU_COMMENT_BOT_TRUST_MODE": "any"}), \
+                patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="这是答案"):
+            bot.process_comment("evt-any", event)
+        self.assertEqual(fake.replied, [("file", "docx", "c1", "这是答案")])
+
+    def test_owner_lookup_failure_denies(self):
+        fake = FakeFeishuClient(self.make_comment(), owner=RuntimeError("boom"))
+        with patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="不该出现"):
+            bot.process_comment("evt-owner-fail", self.make_event())
+        self.assertEqual(fake.replied, [])
+
+    def test_non_docx_keeps_unsupported_reply(self):
+        # 非 docx 不调用模型，也不受信任策略影响。
+        fake = FakeFeishuClient(self.make_comment())
+        event = self.make_event({
+            "file_type": "sheet",
+            "from_user_id": {"open_id": "ou_stranger"},
+        })
+        with patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="不该出现"):
+            bot.process_comment("evt-sheet", event)
+        self.assertEqual(fake.replied, [("file", "sheet", "c1", bot.UNSUPPORTED_DOC_REPLY)])
+        self.assertEqual(fake.owner_calls, 0)
+
+    def test_whole_comment_is_gated_too(self):
+        fake = FakeFeishuClient(self.make_comment(is_whole=True))
+        event = self.make_event({"from_user_id": {"open_id": "ou_stranger"}})
+        with patch.object(bot, "get_client", return_value=fake), \
+                patch.object(bot, "answer", return_value="不该出现"):
+            bot.process_comment("evt-whole-stranger", event)
+        self.assertEqual(fake.whole_comments, [])
+
+    def test_command_backend_resolves_command_on_path(self):
+        # 裸命令名 CreateProcess 找不到，必须先按 PATH 解析成完整路径。
+        completed = type("R", (), {"returncode": 0, "stdout": "回答\n", "stderr": ""})()
+        with patch.dict(os.environ, {
+            "FEISHU_COMMENT_BOT_AGENT_BACKEND": "claude",
+            "FEISHU_COMMENT_BOT_AGENT_COMMAND": "claude",
+        }), patch.object(bot.shutil, "which", return_value=r"C:\tools\claude.exe") as which, \
+                patch.object(bot.subprocess, "run", return_value=completed) as run:
+            result = bot.answer("问题", "正文")
+        which.assert_called_once_with("claude")
+        self.assertEqual(result, "回答")
+        self.assertEqual(run.call_args[0][0][0], r"C:\tools\claude.exe")
+        self.assertEqual(run.call_args[0][0][1:], ["-p", bot.build_prompt("问题", "正文", bot.MAX_COMMAND_DOC_CHARS)])
+
+    def test_command_backend_reports_missing_command(self):
+        # 报错里要带上命令名，否则 bot.log 只有 WinError 2。
+        with patch.object(bot.shutil, "which", return_value=None):
+            with self.assertRaises(RuntimeError) as raised:
+                bot.resolve_command("clad")
+        self.assertIn("clad", str(raised.exception))
+
+    @unittest.skipUnless(os.name == "nt", "Windows 路径规则")
+    def test_command_backend_rejects_batch_files(self):
+        # .cmd/.bat 会由 cmd.exe 重新解析参数：正文里的 & 会变成命令。
+        with patch.object(bot.shutil, "which", return_value=r"C:\npm\codex.cmd"):
+            with self.assertRaises(RuntimeError) as raised:
+                bot.resolve_command("codex")
+        self.assertIn("batch file", str(raised.exception))
+
+    @unittest.skipUnless(os.name == "nt", "Windows 路径规则")
+    def test_windows_command_path_keeps_backslashes_and_spaces(self):
+        self.assertEqual(
+            bot.split_command(r'"C:\Program Files\Claude\claude.exe" -p'),
+            [r"C:\Program Files\Claude\claude.exe", "-p"],
+        )
+        self.assertEqual(
+            bot.split_command(r"C:\tools\claude.exe -p"),
+            [r"C:\tools\claude.exe", "-p"],
+        )
 
     def test_process_whole_comment_uses_new_comment(self):
         fake = FakeFeishuClient(self.make_comment(is_whole=True))

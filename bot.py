@@ -5,6 +5,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -35,6 +36,12 @@ TOKEN_REFRESH_MARGIN_SECONDS = 300
 SEEN_LIMIT = 2_000
 SEEN_TTL_SECONDS = 7 * 24 * 60 * 60
 TOKEN_ERROR_CODES = {99991661, 99991663, 99991668}
+
+TRUST_MODE_OWNER = "owner"
+TRUST_MODE_ALLOWLIST = "allowlist"
+TRUST_MODE_ANY = "any"
+OWNER_CACHE_TTL_SECONDS = 10 * 60
+OWNER_CACHE_LIMIT = 500
 
 log = logging.getLogger("feishu-comment-bot")
 load_dotenv(ROOT / ".env")
@@ -94,6 +101,10 @@ class FeishuClient:
         self._token_expires_at = 0.0
         self._bot_open_id = None
         self._lock = threading.Lock()
+        # 文档所有者缓存单独用一把锁：查所有者会走 request()，持有 _lock 时刷新
+        # token 会再次进入 _refresh_token()，那把锁不可重入。
+        self._owner_lock = threading.Lock()
+        self._owner_cache = {}
 
     def _refresh_token(self, force=False):
         with self._lock:
@@ -143,6 +154,38 @@ class FeishuClient:
         bot = result.get("bot") or (result.get("data") or {}).get("bot") or {}
         self._bot_open_id = bot.get("open_id", "")
         return self._bot_open_id
+
+    def document_owner(self, file_token, file_type):
+        # 只缓存成功结果：查询失败或返回空 owner 时，下次还要重新查。
+        key = (file_token, file_type)
+        now = time.time()
+        with self._owner_lock:
+            cached = self._owner_cache.get(key)
+            if cached and cached[1] > now:
+                return cached[0]
+
+        data = self.call(
+            "/drive/v1/metas/batch_query",
+            "POST",
+            {"request_docs": [{"doc_token": file_token, "doc_type": file_type}],
+             "with_url": False},
+            query={"user_id_type": "open_id"},
+        )
+        metas = data.get("metas") or []
+        owner = (metas[0].get("owner_id") or "") if metas else ""
+        if not owner:
+            raise RuntimeError(f"no owner_id for {file_type} {file_token}")
+
+        with self._owner_lock:
+            if len(self._owner_cache) >= OWNER_CACHE_LIMIT:
+                self._owner_cache = {
+                    item: value for item, value in self._owner_cache.items()
+                    if value[1] > now
+                }
+                if len(self._owner_cache) >= OWNER_CACHE_LIMIT:
+                    self._owner_cache.clear()
+            self._owner_cache[key] = (owner, now + OWNER_CACHE_TTL_SECONDS)
+        return owner
 
     def document_text(self, file_token):
         data = self.call(f"/docx/v1/documents/{file_token}/raw_content")
@@ -313,6 +356,49 @@ def truncate_reply(text, limit=MAX_REPLY_CHARS):
     return text[:limit].rstrip() + "\n\n…（回答过长，已截断）"
 
 
+def allowed_users():
+    raw = os.getenv("FEISHU_COMMENT_BOT_ALLOWED_USERS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def trust_mode():
+    mode = os.getenv("FEISHU_COMMENT_BOT_TRUST_MODE", TRUST_MODE_OWNER).strip().lower()
+    return mode or TRUST_MODE_OWNER
+
+
+def is_trusted(client, from_id, file_token, file_type):
+    """评论者是否有权使用机器人。任何异常或配置歧义都按拒绝处理。"""
+    mode = trust_mode()
+    if mode == TRUST_MODE_ANY:
+        return True
+    if mode == TRUST_MODE_ALLOWLIST:
+        allowed = allowed_users()
+        if not allowed:
+            log.warning(
+                "TRUST_MODE=allowlist but FEISHU_COMMENT_BOT_ALLOWED_USERS is empty; "
+                "denying everyone"
+            )
+            return False
+        # 白名单在查所有者之前命中，元数据接口故障不影响已授权的用户。
+        return from_id in allowed
+    if mode != TRUST_MODE_OWNER:
+        log.warning("Unknown FEISHU_COMMENT_BOT_TRUST_MODE=%r; denying everyone", mode)
+        return False
+
+    if not from_id:
+        return False
+    try:
+        owner = client.document_owner(file_token, file_type)
+    except Exception as exc:
+        # 查不到所有者就不回答：宁可少答，也不放行陌生人。
+        log.warning(
+            "Could not resolve the owner of %s (%s); denying comment: %s",
+            file_token, file_type, exc,
+        )
+        return False
+    return from_id == owner
+
+
 def build_prompt(question, document, document_limit):
     return f"""你是飞书文档阅读助手。只依据文档内容回答；不确定时明确说明。先给结论，再解释依据，必要时引用简短原文。
 回答语言与用户提问语言一致：中文提问用中文，英文提问用英文。
@@ -357,12 +443,41 @@ def answer_with_deepseek(prompt):
     return (choices[0].get("message") or {}).get("content", "")
 
 
+def split_command(text):
+    # Windows 路径里的反斜杠不是转义符，POSIX 模式会把 C:\a\b 拆成 C:ab。
+    parts = shlex.split(text, posix=(os.name != "nt"))
+    if os.name == "nt":
+        parts = [part[1:-1] if len(part) >= 2 and part[0] == part[-1] == '"' else part
+                 for part in parts]
+    return parts
+
+
+def resolve_command(name):
+    # CreateProcess 不按 PATHEXT 补全扩展名，先按 PATH 解析成完整路径。
+    resolved = shutil.which(name)
+    if not resolved:
+        raise RuntimeError(
+            f"cannot find agent command {name!r}; "
+            "check FEISHU_COMMENT_BOT_AGENT_COMMAND and PATH"
+        )
+    # 批处理由 cmd.exe 解释执行，参数里的 & | % 会被再次解析。评论正文和文档内容
+    # 都来自文档读者，等同于命令注入，所以只接受真正的可执行文件。
+    if os.name == "nt" and resolved.lower().endswith((".cmd", ".bat")):
+        raise RuntimeError(
+            f"agent command {name!r} resolves to a batch file ({resolved}); "
+            "batch files re-parse arguments - point "
+            "FEISHU_COMMENT_BOT_AGENT_COMMAND at the CLI's .exe instead"
+        )
+    return resolved
+
+
 def answer_with_command(backend, prompt):
     # Windows 命令行长度有限，先把 prompt 截到安全范围。
     prompt = prompt[:MAX_PROMPT_CHARS]
-    command = shlex.split(os.getenv("FEISHU_COMMENT_BOT_AGENT_COMMAND", backend))
+    command = split_command(os.getenv("FEISHU_COMMENT_BOT_AGENT_COMMAND", backend))
     if not command:
         raise RuntimeError("FEISHU_COMMENT_BOT_AGENT_COMMAND is empty")
+    command[0] = resolve_command(command[0])
     process = subprocess.run(
         command + ["-p", prompt],
         capture_output=True, text=True, timeout=180,
@@ -402,6 +517,17 @@ def process_comment(event_id, event):
         mark_seen(dedupe_key)
         return
 
+    # 只对会调用模型的 docx 做身份校验；其它类型只回一句「不支持」，没有注入面。
+    if file_type in SUPPORTED_DOC_TYPES and not is_trusted(
+            client, from_id, file_token, file_type):
+        log.info(
+            "Skip comment %s: %s is not allowed to use the bot (TRUST_MODE=%s); "
+            "add that open_id to FEISHU_COMMENT_BOT_ALLOWED_USERS to permit it",
+            comment_id, from_id or "unknown user", trust_mode(),
+        )
+        mark_seen(dedupe_key)
+        return
+
     comment = client.comment(file_token, comment_id, file_type)
     if comment.get("is_solved"):
         log.info("Skip solved comment %s", comment_id)
@@ -432,7 +558,7 @@ def process_comment(event_id, event):
     else:
         client.reply_comment(file_token, file_type, comment_id, reply)
     mark_seen(dedupe_key)
-    log.info("Replied to comment %s in file %s", comment_id, file_token)
+    log.info("Replied to comment %s in file %s (by %s)", comment_id, file_token, from_id)
 
 
 def on_comment(data):
