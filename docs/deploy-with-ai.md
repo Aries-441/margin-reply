@@ -1,10 +1,10 @@
 # Deploy with an AI agent
 
-This page is written **for an AI coding agent** (Claude Code, Codex, ChatGPT with file access). It is not a human tutorial — a human can follow [README.md](../README.md) or [README.zh-CN.md](../README.zh-CN.md).
+This page is written **for an AI coding agent** (Claude Code, Codex, ChatGPT with file access). For manual setup, see the [English README](../README.en.md) or the [Chinese README](../README.md).
 
 Target environment: Windows 10/11, PowerShell 5.1, Python 3.12.
 
-> Deploying from a release build? The `MarginReply-Setup-0.1.0.exe` installer does Phases 1 and 5 itself and needs no Python on the target machine — see [README.zh-CN.md](../README.zh-CN.md#安装包推荐无需-python). The phases below are the source-based path; do not mix the two on one machine.
+> Deploying from a release build? The `MarginReply-Setup-0.1.0.exe` installer handles Phases 1 and 5 and includes Python. Use the [installer instructions](../README.en.md#installer-recommended-no-python-needed) for that path. The phases below cover running from source.
 
 ## Ground rules
 

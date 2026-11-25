@@ -67,7 +67,7 @@ Changing the app later? Edit `.env` in the install directory (`%LocalAppData%\Ma
 
 Feishu bots have no tenant-wide document access. For each document:
 
-> Only add the bot to documents whose readers/commenters you trust. The bot has no prompt-injection protection — anyone who can comment can try to steer the model or make it quote the document into the thread. See the security notice in [README.md](../README.md#security-notice-read-this-first).
+> Only add the bot to documents whose readers/commenters you trust. The bot has no prompt-injection protection — anyone who can comment can try to steer the model or make it quote the document into the thread. See the [security notice](../README.en.md#security-notice-read-this-first).
 
 1. Open the docx.
 2. **Share** → add collaborator → search the bot's name.

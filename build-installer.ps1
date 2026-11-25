@@ -146,7 +146,7 @@ $files = @(
     'requirements.txt'
     '.env.example'
     'README.md'
-    'README.zh-CN.md'
+    'README.en.md'
     'LICENSE'
     'CONTRIBUTING.md'
 )
