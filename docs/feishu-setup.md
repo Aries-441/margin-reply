@@ -5,7 +5,7 @@ Everything on this page happens in the [Feishu Developer Console](https://open.f
 ## 1. Create the app
 
 1. Developer Console → **Create custom app** (企业自建应用).
-2. Name it something recognizable — users will see this name when they @-mention it.
+2. Choose the name users will see when they @-mention the bot, for example **Margin Reply** or **页边答**.
 3. **Add app capability → Bot** (机器人). Without the bot capability the comment event is never delivered.
 
 ## 2. Subscribe to the comment event
@@ -61,7 +61,7 @@ App → **Credentials & Basic Info** (凭证与基础信息):
 
 With the installer, enter both in the setup wizard — it writes `.env` for you. From source, put them in `.env`. Do not paste them into a chat, a shell command, or a commit.
 
-Changing the app later? Edit `.env` in the install directory (`%LocalAppData%\FeishuDocClarifier`) and restart the task, or run the installer again — it pre-fills the previous values.
+Changing the app later? Edit `.env` in the install directory (`%LocalAppData%\MarginReply`) and restart the task, or run the installer again — it pre-fills the previous values.
 
 ## 6. Give the bot access to documents
 

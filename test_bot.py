@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -57,7 +58,7 @@ class BotTest(unittest.TestCase):
         self._temp = tempfile.TemporaryDirectory()
         self._old_seen = bot.SEEN
         bot.SEEN = Path(self._temp.name) / "seen.json"
-        # bot.py 在 import 时跑过 load_dotenv()，开发者本机的 .env 不能影响测试。
+        # 测试使用固定的信任策略，避免本机环境变量影响结果。
         env = patch.dict(os.environ, {
             "FEISHU_COMMENT_BOT_TRUST_MODE": "owner",
             "FEISHU_COMMENT_BOT_ALLOWED_USERS": "",
@@ -297,6 +298,23 @@ class BotTest(unittest.TestCase):
         self.assertEqual(run.call_args[0][0][0], r"C:\tools\claude.exe")
         self.assertEqual(run.call_args[0][0][1:], ["-p", bot.build_prompt("问题", "正文", bot.MAX_COMMAND_DOC_CHARS)])
 
+    def test_codex_exec_reads_utf8_prompt_from_stdin(self):
+        script = Path(self._temp.name) / "fake codex.py"
+        script.write_text(
+            'import sys\n'
+            'assert sys.argv[1:] == ["--profile", "example", "exec", "--skip-git-repo-check", '
+            '"--sandbox", "read-only", "-"]\n'
+            'sys.stdout.buffer.write(sys.stdin.buffer.read())\n',
+            encoding="utf-8",
+        )
+        question, document = "这段是什么意思？", "第一行\n第二行 🌱"
+        with patch.dict(os.environ, {
+            "FEISHU_COMMENT_BOT_AGENT_BACKEND": "codex",
+            "FEISHU_COMMENT_BOT_AGENT_COMMAND": f'"{sys.executable}" "{script}" --profile example',
+        }):
+            self.assertEqual(bot.answer(question, document),
+                             bot.build_prompt(question, document, bot.MAX_COMMAND_DOC_CHARS))
+
     def test_command_backend_reports_missing_command(self):
         # 报错里要带上命令名，否则 bot.log 只有 WinError 2。
         with patch.object(bot.shutil, "which", return_value=None):
@@ -314,6 +332,10 @@ class BotTest(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows 路径规则")
     def test_windows_command_path_keeps_backslashes_and_spaces(self):
+        executable = Path(self._temp.name) / "CLI tools" / "codex.exe"
+        executable.parent.mkdir()
+        executable.touch()
+        self.assertEqual(bot.split_command(str(executable)), [str(executable)])
         self.assertEqual(
             bot.split_command(r'"C:\Program Files\Claude\claude.exe" -p'),
             [r"C:\Program Files\Claude\claude.exe", "-p"],

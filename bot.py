@@ -43,8 +43,7 @@ TRUST_MODE_ANY = "any"
 OWNER_CACHE_TTL_SECONDS = 10 * 60
 OWNER_CACHE_LIMIT = 500
 
-log = logging.getLogger("feishu-comment-bot")
-load_dotenv(ROOT / ".env")
+log = logging.getLogger("margin-reply")
 
 
 def setup_logging():
@@ -444,6 +443,9 @@ def answer_with_deepseek(prompt):
 
 
 def split_command(text):
+    # 安装向导允许直接粘贴完整路径，包括含空格的安装目录。
+    if os.name == "nt" and os.path.isfile(text):
+        return [text]
     # Windows 路径里的反斜杠不是转义符，POSIX 模式会把 C:\a\b 拆成 C:ab。
     parts = shlex.split(text, posix=(os.name != "nt"))
     if os.name == "nt":
@@ -478,10 +480,15 @@ def answer_with_command(backend, prompt):
     if not command:
         raise RuntimeError("FEISHU_COMMENT_BOT_AGENT_COMMAND is empty")
     command[0] = resolve_command(command[0])
-    process = subprocess.run(
-        command + ["-p", prompt],
-        capture_output=True, text=True, timeout=180,
-    )
+    if backend == "codex":
+        process = subprocess.run(
+            command + ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
+            input=prompt, encoding="utf-8", capture_output=True, timeout=180,
+        )
+    else:
+        process = subprocess.run(
+            command + ["-p", prompt], capture_output=True, text=True, timeout=180,
+        )
     if process.returncode != 0:
         raise RuntimeError(f"agent command failed: {process.stderr.strip()[:500]}")
     return process.stdout.strip()

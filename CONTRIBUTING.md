@@ -9,10 +9,10 @@ Thanks for taking a look. This is a small, single-file bot; keep changes small a
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\pip install -r requirements.txt
-   .\.venv\Scripts\python -m unittest -v test_bot
+   .\.venv\Scripts\python -m unittest discover -v
    ```
 
-   All tests must pass. New behaviour needs a test in `test_bot.py`; the suite uses fakes and never calls the real Feishu API.
+   Run the suite offline. Add bot tests to `test_bot.py` and Windows supervisor tests to `test_supervisor.py`.
 
 2. Do not commit secrets, `logs/`, `.venv/`, `.env` or `.seen_events.json`.
 
@@ -20,7 +20,7 @@ Thanks for taking a look. This is a small, single-file bot; keep changes small a
 
 ## The Windows installer
 
-`build-installer.ps1` stages the project plus a Python 3.12 embeddable runtime into `installer\build\app`, then compiles `installer\FeishuDocClarifier.iss` with Inno Setup 6:
+`build-installer.ps1` stages the project plus a Python 3.12 embeddable runtime into `installer\build\app`, then compiles `installer\MarginReply.iss` with Inno Setup 6:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1

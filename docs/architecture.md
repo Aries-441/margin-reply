@@ -82,7 +82,7 @@ Only `docx` comments are gated — other file types get the static "not supporte
 |---|---|---|
 | Document text sent to the model | 30,000 chars (head + tail) | `MAX_DOC_CHARS` |
 | Command backend document text | 12,000 chars | `MAX_COMMAND_DOC_CHARS` |
-| Command line prompt cap | 20,000 chars | `MAX_PROMPT_CHARS` |
+| Local CLI prompt cap | 20,000 chars | `MAX_PROMPT_CHARS` |
 | Reply length | 4,000 chars | `MAX_REPLY_CHARS` |
 | Dedupe store | 2,000 entries / 7 days | `SEEN_LIMIT`, `SEEN_TTL_SECONDS` |
 | Workers | 2 | `WORKER_COUNT` |
@@ -92,6 +92,7 @@ Only `docx` comments are gated — other file types get the static "not supporte
 `FEISHU_COMMENT_BOT_AGENT_BACKEND`:
 
 - `deepseek` — HTTPS call to `api.deepseek.com`, model from `FEISHU_COMMENT_BOT_DEEPSEEK_MODEL`.
-- anything else (`claude`, `codex`, …) — runs `FEISHU_COMMENT_BOT_AGENT_COMMAND` with `-p <prompt>`, 180 s timeout, and uses stdout as the answer.
+- `codex` — runs `codex exec --skip-git-repo-check --sandbox read-only -` and sends the prompt through UTF-8 stdin.
+- `claude` and custom backends — pass the prompt as the argument to `-p`.
 
-Both are single-shot: no conversation history between comments.
+`FEISHU_COMMENT_BOT_AGENT_COMMAND` sets the local executable and any leading arguments. Both CLI modes use stdout as the answer and time out after 180 seconds. Each comment starts a new request.

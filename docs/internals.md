@@ -27,19 +27,20 @@ Why the bot is built this way, and where the edges are. For the API-level traps 
 
 ## Installer
 
-The package is built by `build-installer.ps1` (staging into `installer\build\app`, compiling `installer\FeishuDocClarifier.iss`) and installs per-user into `%LocalAppData%\FeishuDocClarifier` with no admin rights.
+The package is built by `build-installer.ps1` (staging into `installer\build\app`, compiling `installer\MarginReply.iss`) and installs per-user into `%LocalAppData%\MarginReply` with no admin rights.
 
-- **Why the embeddable runtime, not PyInstaller.** The bot is a plain script plus a scheduler wrapper. Shipping the official embeddable Python keeps `bot.py`, the `.ps1` files and the docs readable and editable after install, and the same `run.ps1` works from a source checkout (it falls back to `.venv`).
+- **Why the embeddable runtime, not PyInstaller.** The bot is a plain script plus a scheduler wrapper. Shipping the official embeddable Python keeps `bot.py`, the `.ps1` files and the docs readable and editable after install, and the same `supervisor.py` works from a source checkout (it falls back to `.venv`).
+- **Background startup.** The scheduled task runs `pythonw.exe` without a console window. The supervisor acquires the session mutex `Local\margin-reply` to prevent duplicate instances, restarts the bot with backoff, and uses a Windows job object to stop its child when the supervisor exits.
 - **Why the wizard writes `.env` itself.** The app secret should not be typed into a terminal (where it lands in shell history). The wizard collects the app ID and a masked app secret and writes them straight to the file; a second UTF-8 encoder keeps it independent of console code pages.
 - **Why silent mode skips validation.** A silent install has nobody to dismiss a dialog; `/APPID` etc. can be passed instead, and a missing value surfaces as the bot's own `missing required environment variable` log line.
-- **Why the installer stops the bot before upgrading.** The scheduled task and its Python process hold the runtime files; `uninstall-task.ps1 -StopOnly` stops them without deleting `.env`, so upgrades keep the previous configuration.
-- **Why bytecode caching is off.** Python would otherwise drop untracked `__pycache__` files into the install directory on every start. The uninstaller deletes them too, but never writing them keeps the install tree equal to what the package shipped, which makes upgrades and leftovers easier to reason about. `run.ps1` sets `PYTHONDONTWRITEBYTECODE=1`.
+- **Reinstalling.** The installer runs `uninstall-task.ps1 -StopOnly` to release the runtime files and pre-fills the wizard from the existing `.env`.
+- **Why bytecode caching is off.** Python would otherwise drop untracked `__pycache__` files into the install directory on every start. The uninstaller deletes them too, but never writing them keeps the install tree equal to what the package shipped, which makes leftover files easier to identify. `supervisor.py` sets `PYTHONDONTWRITEBYTECODE=1` for the bot.
 - **Why batch files are refused.** The prompt contains comment and document text. A `.cmd`/`.bat` target is run by `cmd.exe`, which re-parses `&`, `|` and `%VAR%` in the argument — the text would become shell syntax. `resolve_command()` accepts only real executables.
 
 ## Known boundaries
 
 - **Prompt injection is unmitigated.** Comment text and the document body go into the same prompt with no instruction/data separation and no output filtering. Anyone who can comment can try to steer the answer or make the model quote the document into the thread. Treat it as a personal / trusted-team tool, not a public bot.
-- **The CLI backend is only as contained as the CLI.** Passing the prompt as an `.exe` argument avoids shell re-parsing (batch files are refused), but a local agent CLI that gets injected may still use its own tools. Use the DeepSeek backend where that matters.
+- **Local CLI permissions matter.** The bot launches the executable directly. Codex reads the prompt from stdin in its read-only sandbox. Claude and custom commands use their configured permissions.
 - No conversation memory: every comment is answered with the document and that one question. Follow-ups require repeating context (the thread is not fed back in).
 - The document is read as raw text, so tables lose their structure and images are invisible.
 - Very long documents are cut in the middle (head + tail kept) to stay inside the model context.

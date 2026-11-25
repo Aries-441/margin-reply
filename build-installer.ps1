@@ -2,14 +2,14 @@
 #
 # 用法：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1
-#   powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1 -AppVersion 1.2.0
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1 -AppVersion 0.2.0
 #
-# 产物：installer\Output\FeishuDocClarifier-Setup-<版本>.exe
+# 产物：installer\Output\MarginReply-Setup-<版本>.exe
 #
 # 首次构建需要联网下载 Python 和 PyPI 依赖；本机没有 Inno Setup 时会尝试用 winget 安装。
 [CmdletBinding()]
 param(
-    [string]$AppVersion = '1.0.0',
+    [string]$AppVersion = '0.1.0',
     [string]$PythonVersion = '3.12.10',
     [string]$InnoSetupCompiler,
     [switch]$SkipRuntime,
@@ -21,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 
 $Root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $InstallerDir = Join-Path $Root 'installer'
-$IssFile = Join-Path $InstallerDir 'FeishuDocClarifier.iss'
+$IssFile = Join-Path $InstallerDir 'MarginReply.iss'
 $BuildDir = Join-Path $InstallerDir 'build'
 $AppDir = Join-Path $BuildDir 'app'
 $RuntimeDir = Join-Path $BuildDir 'runtime'
@@ -128,9 +128,6 @@ if ($SkipRuntime) {
     & $pythonExe -m pip install --no-warn-script-location --disable-pip-version-check `
         -r (Join-Path $Root 'requirements.txt')
     if ($LASTEXITCODE -ne 0) { throw "安装依赖失败（exit $LASTEXITCODE）" }
-
-    & $pythonExe -c "import lark_oapi, dotenv; print('runtime dependencies ok')"
-    if ($LASTEXITCODE -ne 0) { throw "运行时自检失败" }
 }
 
 # ---------------------------------------------------------------------------
@@ -142,6 +139,7 @@ New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
 
 $files = @(
     'bot.py'
+    'supervisor.py'
     'run.ps1'
     'install-task.ps1'
     'uninstall-task.ps1'
@@ -173,6 +171,18 @@ Copy-Item -Path (Join-Path $RuntimeDir '*') -Destination $appRuntime -Recurse -F
 # 去掉编译缓存，减小安装包体积。
 Get-ChildItem -Path $AppDir -Recurse -Directory -Filter '__pycache__' -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Step "验证安装包中的 Python 运行时和应用"
+if (-not (Test-Path -LiteralPath (Join-Path $appRuntime 'pythonw.exe') -PathType Leaf)) {
+    throw "安装包缺少 runtime\pythonw.exe，无法启动后台机器人"
+}
+Push-Location $AppDir
+try {
+    & (Join-Path $appRuntime 'python.exe') -B -c "import runpy; runpy.run_path('bot.py'); runpy.run_path('supervisor.py')"
+    if ($LASTEXITCODE -ne 0) { throw "安装包中的应用加载失败，请检查内置 Python 及其依赖（exit $LASTEXITCODE）" }
+} finally {
+    Pop-Location
+}
 
 # ---------------------------------------------------------------------------
 # 3. 调用 Inno Setup
@@ -206,7 +216,7 @@ try {
 }
 if ($exitCode -ne 0) { throw "Inno Setup 编译失败（exit $exitCode）" }
 
-$setupPath = Join-Path $OutputDir "FeishuDocClarifier-Setup-$AppVersion.exe"
+$setupPath = Join-Path $OutputDir "MarginReply-Setup-$AppVersion.exe"
 if (-not (Test-Path $setupPath)) {
     throw "编译完成但找不到产物：$setupPath"
 }

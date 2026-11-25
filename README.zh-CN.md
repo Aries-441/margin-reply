@@ -1,4 +1,4 @@
-# feishu-comment-bot
+# 页边答
 
 在**飞书云文档评论区**答疑的小机器人。在评论里 @ 它，它会读 docx 正文，在原评论线程回复——后端可以是 DeepSeek，也可以是你本机的 Claude Code / Codex。
 
@@ -31,30 +31,30 @@
 
 用本机 CLI 后端（Claude Code / Codex）时后果更重：这类 CLI 能读写文件、执行命令，被注入后会不会真的动手，取决于你给它的权限配置。DeepSeek 后端只是一次 API 调用，不会在你机器上执行任何东西。
 
-命令注入方面：机器人已经拒绝执行 `.cmd` / `.bat`（批处理会二次解析参数），提示词只作为参数交给 `.exe`、不经过 shell。但这不是完整隔离，真正的防线是**只让可信的人评论这些文档**。
+机器人直接调用可执行文件，并拒绝执行 `.cmd` 和 `.bat`。Codex 在只读沙箱中从标准输入读取问题，Claude 和自定义命令通过 `-p` 接收问题。请只授权可信的评论者使用。
 
 ## 安装包（推荐，无需 Python）
 
-下载 `FeishuDocClarifier-Setup-<版本>.exe`，双击运行。安装包自带 Python 3.12 运行时和依赖，目标机器不需要另外安装 Python。
+双击 `MarginReply-Setup-0.1.0.exe` 即可安装页边答。安装包自带 Python 3.12 和运行依赖。
 
 向导会：
 
 1. 展示飞书应用的创建步骤（约 5 分钟，在飞书开放平台完成）；
 2. 让你填入 App ID 和 App Secret；
 3. 让你选择回答后端：DeepSeek（默认）或本机 Claude / Codex CLI；
-4. 按当前用户安装到 `%LocalAppData%\FeishuDocClarifier`，不需要管理员权限；
-5. 注册计划任务 `FeishuDocClarifier`，登录 Windows 后自动启动，安装完成时先启动一次。
+4. 按当前用户安装到 `%LocalAppData%\MarginReply`，不需要管理员权限；
+5. 默认勾选登录自启，安装完成后立即启动机器人，并注册计划任务 `MarginReply` 供以后登录时启动。取消勾选后，可以在完成页直接启动，也可以稍后从开始菜单启动。
 
-开始菜单里有「启动机器人」「查看机器人日志」「飞书应用配置指南」和卸载入口。卸载会停止机器人、删除计划任务和安装目录（包括 `.env`）。
+打开「开始 → 页边答」，可选择「启动页边答」「查看页边答日志」「飞书应用配置指南」或「卸载 页边答」。卸载会停止机器人、删除计划任务和安装目录（包括 `.env`）。
 
-安装后记得在飞书文档里把机器人加为协作者，然后在评论里 @ 它。
+安装后，在飞书文档里把机器人加为协作者，然后在评论里 @ 它。
 
 > 安装包没有代码签名，首次运行可能出现 Windows SmartScreen 提示；选择「更多信息」→「仍要运行」即可。
 
 ### 静默安装
 
 ```powershell
-.\FeishuDocClarifier-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART `
+.\MarginReply-Setup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART `
   /APPID=cli_xxx /APPSECRET=xxx /BACKEND=deepseek /DEEPSEEKKEY=sk-xxx
 ```
 
@@ -65,9 +65,9 @@
 | `/CLICOMMAND` | 本机 CLI 命令，默认随后端取 `claude` / `codex` |
 | `/DEEPSEEKKEY`、`/DEEPSEEKMODEL` | DeepSeek Key 与模型，默认 `deepseek-chat` |
 | `/TRUSTMODE`、`/ALLOWEDUSERS` | 信任策略（`owner`/`allowlist`/`any`）与白名单 open_id |
-| `/TASKS=""` | 不注册登录自启 |
+| `/TASKS=""` | 静默安装后，通过「开始 → 页边答 → 启动页边答」手动启动 |
 
-参数写入本机 `.env`，不会上传。注意：它们也会出现在进程命令行和 PowerShell 历史里，共享电脑上建议直接双击用向导安装。
+安装器将这些配置写入本机 `.env`。机器人运行时使用 App ID 和 App Secret 向飞书认证。静默安装的参数可能出现在进程命令行和 PowerShell 历史里，共享电脑上建议双击使用安装向导。
 
 ### 自己打包
 
@@ -75,7 +75,7 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1
 ```
 
-脚本会下载 Python 3.12 嵌入式运行时、安装依赖，再调用 Inno Setup 6 编译，产物在 `installer\Output\`。首次构建需要联网；找不到 Inno Setup 时会尝试用 winget 安装。改版本号：`-AppVersion 1.2.0`。
+脚本会下载 Python 3.12 嵌入式运行时、安装依赖，再调用 Inno Setup 6 编译，产物在 `installer\Output\`。首次构建需要联网；找不到 Inno Setup 时会尝试用 winget 安装。改版本号：`-AppVersion 0.2.0`。
 
 ## 从源码运行（Windows）
 
@@ -84,8 +84,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1
 **2. 拉代码、装依赖**
 
 ```powershell
-git clone https://github.com/<you>/feishu-comment-bot.git
-cd feishu-comment-bot
+git clone https://github.com/Aries-441/margin-reply.git
+cd margin-reply
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
@@ -115,7 +115,7 @@ notepad .env
 powershell -NoProfile -ExecutionPolicy Bypass -File install-task.ps1
 ```
 
-注册计划任务 `FeishuDocClarifier`：登录自启、单实例、异常退出后自动重试。
+注册计划任务 `MarginReply`：登录自启、单实例、异常退出后自动重试。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File uninstall-task.ps1   # 停止并删除任务
@@ -130,7 +130,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File uninstall-task.ps1   # 停�
 把下面这段丢给 Claude Code、Codex 或带文件访问能力的 ChatGPT：
 
 ```text
-在这台 Windows 机器上部署 https://github.com/<you>/feishu-comment-bot 。
+在这台 Windows 机器上部署 https://github.com/Aries-441/margin-reply 。
 读 docs/deploy-with-ai.md，按阶段执行。
 终端操作你来做；飞书控制台的步骤留给我，app secret 也由我自己填进 .env —— 不要打印任何密钥。
 每个阶段结束停下来，把验收输出给我看。
@@ -145,7 +145,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File uninstall-task.ps1   # 停�
 | `FEISHU_COMMENT_BOT_APP_ID` | — | 飞书 app ID（`cli_...`） |
 | `FEISHU_COMMENT_BOT_APP_SECRET` | — | 飞书 app secret |
 | `FEISHU_COMMENT_BOT_AGENT_BACKEND` | `deepseek` | `deepseek`，或 `claude` / `codex` / 任意命令 |
-| `FEISHU_COMMENT_BOT_AGENT_COMMAND` | `claude` | 本机 CLI 后端时执行的命令（只支持 `.exe`） |
+| `FEISHU_COMMENT_BOT_AGENT_COMMAND` | 所选后端名称 | 可选，用于指定本机 CLI 可执行命令（只支持 `.exe`） |
 | `FEISHU_COMMENT_BOT_DEEPSEEK_API_KEY` | — | 后端为 `deepseek` 时必填 |
 | `FEISHU_COMMENT_BOT_DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek 模型名 |
 | `FEISHU_COMMENT_BOT_TRUST_MODE` | `owner` | `owner` 只回答文档所有者；`allowlist` 只回答白名单；`any` 任何人 |
@@ -184,9 +184,9 @@ $env:FEISHU_COMMENT_BOT_AGENT_COMMAND='claude'
 ## 日志与测试
 
 - `logs\bot.log` —— 机器人日志（UTF-8，5 MB × 3 轮转），崩溃和飞书接口错误都在这里。
-- `logs\runner.log` —— `run.ps1` 写的启动 / 退出 / 重试记录。
-- 用安装包时日志在 `%LocalAppData%\FeishuDocClarifier\logs`，也可以从开始菜单打开。
-- 测试：`.\.venv\Scripts\python.exe -m unittest -v test_bot`（27 个用例，不联网）。
+- `logs\runner.log` —— `supervisor.py` 写的启动 / 退出 / 重试记录。
+- 使用安装包时，打开「开始 → 页边答 → 查看页边答日志」即可查看 `%LocalAppData%\MarginReply\logs`。
+- 运行离线测试：`.\.venv\Scripts\python.exe -m unittest discover -v`。
 
 ## 文档
 

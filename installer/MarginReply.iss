@@ -1,25 +1,21 @@
-; 飞书文档评论机器人 Windows 安装包
+; 页边答 Windows 安装包
 ; 构建：在仓库根目录运行 powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
-; 产物：installer\Output\FeishuDocClarifier-Setup-<版本>.exe
+; 产物：installer\Output\MarginReply-Setup-<版本>.exe
 
-#define MyAppName "飞书文档评论机器人"
-#define MyAppNameEn "Feishu Doc Clarifier"
-#define MyAppPublisher "Feishu Doc Clarifier"
-#define MyAppURL "https://open.feishu.cn/app"
+#define MyAppName "页边答"
+#define MyAppNameEn "Margin Reply"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "0.1.0"
 #endif
-#define MyAppId "{{8E2F6A31-6C4B-4D7E-9C1A-2F5B7D9E4A63}"
+#define MyAppId "{{45D713F7-F540-47A5-8693-1346BFF0412F}"
 
 [Setup]
 AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
-AppPublisher={#MyAppPublisher}
-AppPublisherURL={#MyAppURL}
-AppSupportURL={#MyAppURL}
-DefaultDirName={localappdata}\FeishuDocClarifier
+AppPublisher={#MyAppNameEn}
+DefaultDirName={localappdata}\MarginReply
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
@@ -27,7 +23,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 MinVersion=10.0
 OutputDir=Output
-OutputBaseFilename=FeishuDocClarifier-Setup-{#MyAppVersion}
+OutputBaseFilename=MarginReply-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -44,7 +40,7 @@ Name: "chinesesimplified"; MessagesFile: "Languages\ChineseSimplified.isl"
 [Tasks]
 ; 不用 checkedonce：升级时 Inno 会把它自动取消勾选，导致升级后自启任务被删。
 ; 默认勾选 + UsePreviousTasks（默认开启）会沿用上一次安装的选择。
-Name: "autostart"; Description: "登录 Windows 后自动启动机器人（推荐）"; GroupDescription: "启动选项："
+Name: "autostart"; Description: "登录 Windows 后自动启动{#MyAppName}（推荐）"; GroupDescription: "启动选项："
 
 [Files]
 ; build\app 由 build-installer.ps1 生成：项目文件 + 内置 Python runtime。
@@ -54,14 +50,15 @@ Source: "build\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cre
 Name: "{app}\logs"
 
 [Icons]
-Name: "{group}\启动机器人"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\run.ps1"""; WorkingDir: "{app}"; Comment: "立即启动飞书文档评论机器人"
-Name: "{group}\查看机器人日志"; Filename: "{win}\explorer.exe"; Parameters: """{app}\logs"""; Comment: "打开日志目录，bot.log 和 runner.log 都在这里"
+; 直接用 pythonw 启动守护进程：GUI 子系统程序，不会弹出控制台窗口。
+Name: "{group}\启动{#MyAppName}"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\supervisor.py"""; WorkingDir: "{app}"; Comment: "在飞书文档评论中回答问题"
+Name: "{group}\查看{#MyAppName}日志"; Filename: "{win}\explorer.exe"; Parameters: """{app}\logs"""; Comment: "打开日志目录，bot.log 和 runner.log 都在这里"
 Name: "{group}\飞书应用配置指南"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\docs\feishu-setup.md"""; Comment: "首次使用前在飞书开放平台完成配置"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Run]
 ; 未勾选登录自启时，从完成页直接后台启动机器人。
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\run.ps1"""; Description: "立即启动机器人"; Flags: nowait postinstall skipifsilent runhidden; Check: NotAutoStart
+Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\supervisor.py"""; WorkingDir: "{app}"; Description: "立即启动{#MyAppName}"; Flags: nowait postinstall skipifsilent; Check: NotAutoStart
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "StopBotAndTask"
@@ -230,7 +227,7 @@ begin
   // 放在选择安装目录之后，这样预填时可以安全读取 {app}\.env。
   SetupInfoPage := CreateCustomPage(wpSelectDir,
     '准备工作：创建飞书应用',
-    '机器人需要一个飞书企业自建应用的 App ID 和 App Secret。');
+    '{#MyAppName}（{#MyAppNameEn}）使用飞书企业自建应用的凭证连接飞书。');
 
   Memo := TNewMemo.Create(SetupInfoPage);
   Memo.Parent := SetupInfoPage.Surface;
@@ -248,7 +245,7 @@ begin
     '4. 在「权限管理」中批量导入 docs/feishu-setup.md 列出的 10 项权限。' + #13#10 +
     '5. 在「版本管理与发布」中创建版本并发布（部分企业需要管理员审批）。' + #13#10 +
     '6. 在「凭证与基础信息」中复制 App ID 和 App Secret。' + #13#10 + #13#10 +
-    '提示：App Secret 只保存在本机的 .env 文件中，不会上传到任何地方。' + #13#10 +
+    'App Secret 保存在本机安装目录的 .env 中，连接时用于向飞书验证应用身份。' + #13#10 +
     '安装完成后，开始菜单里会提供完整的配置指南和日志入口。' + #13#10 + #13#10 +
     '安全：默认只回答文档所有者的 @，其他人的 @ 会被忽略；' + #13#10 +
     '机器人没有提示词注入防护，请只把机器人加进可信的文档。' + #13#10 + #13#10 +
@@ -263,13 +260,13 @@ begin
   CredPage := CreateInputQueryPage(SetupInfoPage.ID,
     '填写飞书应用凭证',
     '在飞书开放平台 → 你的应用 →「凭证与基础信息」中获取这两项。',
-    'App Secret 只写入本机安装目录下的 .env 文件。');
+    '安装程序会将凭证写入本机安装目录的 .env，供{#MyAppName}连接飞书时使用。');
   CredPage.Add('App ID（通常以 cli_ 开头）：', False);
   CredPage.Add('App Secret：', True);
 
   BackendPage := CreateCustomPage(CredPage.ID,
     '选择回答后端',
-    '机器人收到 @ 后会调用这个后端生成回答。之后可以修改 .env 更换。');
+    '{#MyAppName}收到 @ 后会调用这个后端生成回答。之后可以修改 .env 更换。');
 
   RadioDeepSeek := TNewRadioButton.Create(BackendPage);
   RadioDeepSeek.Parent := BackendPage.Surface;
@@ -297,15 +294,15 @@ begin
   DeepSeekPage := CreateInputQueryPage(BackendPage.ID,
     'DeepSeek 配置',
     'API Key 可在 platform.deepseek.com 的「API keys」页面创建。',
-    'Key 只写入本机 .env。');
+    'API Key 保存在本机 .env 中，调用 DeepSeek 时用于验证身份。');
   DeepSeekPage.Add('DeepSeek API Key：', True);
   DeepSeekPage.Add('模型名：', False);
   DeepSeekPage.Values[1] := 'deepseek-chat';
 
   CliPage := CreateInputQueryPage(BackendPage.ID,
     '本机 CLI 配置',
-    '机器人会执行该命令，并把问题通过 -p 参数传入。',
-    '命令可以是命令名，也可以是可执行文件的绝对路径。只支持 .exe：' +
+    'Codex 使用非交互模式读取问题；Claude 和自定义命令使用 -p。',
+    '可填写命令名，也可直接粘贴 .exe 的完整路径。' +
     '.cmd/.bat 会让正文里的特殊字符被命令行重新解析，出于安全原因不执行。');
   CliPage.Add('CLI 命令：', False);
   CliPage.Values[0] := 'claude';
@@ -471,19 +468,25 @@ begin
     ewWaitUntilTerminated, ErrorCode);
 end;
 
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ErrorCode: Integer;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{app}\uninstall-task.ps1')) then
+    if (not RunAppScript('uninstall-task.ps1', '-StopOnly', ErrorCode)) or (ErrorCode <> 0) then
+      Result := '无法停止正在运行的{#MyAppName}。请关闭后重试安装。';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ErrorCode: Integer;
 begin
-  if CurStep = ssInstall then
-  begin
-    // 升级安装前先停掉旧任务和旧机器人，避免文件被占用。
-    if FileExists(ExpandConstant('{app}\uninstall-task.ps1')) then
-      RunAppScript('uninstall-task.ps1', '-StopOnly', ErrorCode);
-  end;
-
   if CurStep = ssPostInstall then
   begin
+    // 静默安装不走向导页，CurPageChanged 不会触发，这里补读已有 .env；
+    // 否则静默升级会把上次填写的凭证覆盖成空值。
+    PrefillFromExisting;
     if not SaveEnvFile then
       MsgBox('无法写入 .env 配置文件，请检查安装目录权限。' + #13#10 +
         ExpandConstant('{app}\.env'), mbError, MB_OK);
@@ -493,14 +496,10 @@ begin
       if (not RunAppScript('install-task.ps1', '', ErrorCode)) or (ErrorCode <> 0) then
         MsgBox('安装已完成，但注册登录自启任务失败。' + #13#10 +
           '可以手动运行：' + ExpandConstant('{app}\install-task.ps1') + #13#10 +
-          '或从开始菜单启动机器人。', mbError, MB_OK);
+          '或从开始菜单打开「启动{#MyAppName}」。', mbError, MB_OK);
     end
-    else
-    begin
-      // 用户取消登录自启时，清掉旧版本可能留下的计划任务。
-      if FileExists(ExpandConstant('{app}\uninstall-task.ps1')) then
-        RunAppScript('uninstall-task.ps1', '', ErrorCode);
-    end;
+    else if (not RunAppScript('uninstall-task.ps1', '-UnregisterOnly', ErrorCode)) or (ErrorCode <> 0) then
+      MsgBox('未能取消登录自启。请在任务计划程序中检查 MarginReply。', mbError, MB_OK);
   end;
 end;
 

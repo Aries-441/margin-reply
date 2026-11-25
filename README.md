@@ -1,4 +1,4 @@
-# feishu-comment-bot
+# Margin Reply
 
 A small bot that answers questions in **Feishu (Lark) document comments**. Mention it in a comment, it reads the docx body and replies in the same thread — using DeepSeek or your local Claude Code / Codex.
 
@@ -31,21 +31,21 @@ It has no prompt-injection defences: the comment text and the whole document are
 
 With a local CLI backend (Claude Code / Codex) the stakes are higher: those CLIs can read files and run commands, and whether an injected instruction actually does something depends on the permissions you gave them. The DeepSeek backend is a single API call and executes nothing on your machine.
 
-On command injection: the bot refuses `.cmd` / `.bat` commands (batch files re-parse their arguments) and passes the prompt as an argument to a `.exe` without a shell. That is not full isolation — the real defence is **only letting trusted people comment on these documents**.
+The bot calls the CLI executable directly and refuses `.cmd` and `.bat` files. Codex reads the prompt from standard input in read-only sandbox mode. Claude and custom commands receive it through `-p`. Only grant access to trusted commenters.
 
 ## Installer (recommended, no Python needed)
 
-Download `FeishuDocClarifier-Setup-<version>.exe` and double-click it. The package bundles a Python 3.12 runtime and the dependencies, so the target machine does not need Python installed.
+Double-click `MarginReply-Setup-0.1.0.exe` to install Margin Reply. The package includes Python 3.12 and the bot’s dependencies.
 
 The wizard will:
 
 1. Show the Feishu app creation steps (~5 minutes, done in the developer console);
 2. Ask for the App ID and App Secret;
 3. Ask for an answer backend: DeepSeek (default) or a local Claude / Codex CLI;
-4. Install per-user into `%LocalAppData%\FeishuDocClarifier` — no admin rights needed;
-5. Register the scheduled task `FeishuDocClarifier` (starts at logon) and start the bot once at the end.
+4. Install per-user into `%LocalAppData%\MarginReply` — no admin rights needed;
+5. With logon autostart selected (the default), start the bot immediately and register the `MarginReply` task for future logons. If you clear that option, you can start the bot from the final wizard page or later from the Start menu.
 
-The Start menu has entries for starting the bot, opening the logs, reading the Feishu setup guide, and uninstalling. Uninstalling stops the bot, removes the task and deletes the install directory (including `.env`).
+Open **Start → 页边答** and choose **启动页边答** (start Margin Reply), **查看页边答日志** (view logs), **飞书应用配置指南** (Feishu app setup guide), or **卸载 页边答** (uninstall). Uninstalling stops the bot, removes the task and deletes the install directory (including `.env`).
 
 After installing, add the bot as a collaborator on each document and @-mention it in a comment.
 
@@ -54,7 +54,7 @@ After installing, add the bot as a collaborator on each document and @-mention i
 ### Silent install
 
 ```powershell
-.\FeishuDocClarifier-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART `
+.\MarginReply-Setup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART `
   /APPID=cli_xxx /APPSECRET=xxx /BACKEND=deepseek /DEEPSEEKKEY=sk-xxx
 ```
 
@@ -65,9 +65,9 @@ After installing, add the bot as a collaborator on each document and @-mention i
 | `/CLICOMMAND` | Command used for a local CLI; defaults to `claude` / `codex` |
 | `/DEEPSEEKKEY`, `/DEEPSEEKMODEL` | DeepSeek key and model, model defaults to `deepseek-chat` |
 | `/TRUSTMODE`, `/ALLOWEDUSERS` | Trust policy (`owner`/`allowlist`/`any`) and allowed open_ids |
-| `/TASKS=""` | Do not register the logon task |
+| `/TASKS=""` | After a silent install, start the bot manually from **Start → 页边答 → 启动页边答** |
 
-Parameters are written to the local `.env`; nothing is uploaded. They also appear on the process command line and in PowerShell history, so on a shared machine prefer the interactive wizard.
+The installer writes these settings to the local `.env` file. At runtime, the bot uses the App ID and App Secret to authenticate with Feishu. Silent-install arguments can appear on the process command line and in PowerShell history, so prefer the interactive wizard on a shared machine.
 
 ### Build it yourself
 
@@ -75,7 +75,7 @@ Parameters are written to the local `.env`; nothing is uploaded. They also appea
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1
 ```
 
-The script downloads the Python 3.12 embeddable runtime, installs the dependencies, then compiles with Inno Setup 6. Output lands in `installer\Output\`. The first build needs network access; if Inno Setup is missing the script tries winget. Bump the version with `-AppVersion 1.2.0`.
+The script downloads the Python 3.12 embeddable runtime, installs the dependencies, then compiles with Inno Setup 6. Output lands in `installer\Output\`. The first build needs network access; if Inno Setup is missing the script tries winget. Bump the version with `-AppVersion 0.2.0`.
 
 ## Quick start (Windows, from source)
 
@@ -84,8 +84,8 @@ The script downloads the Python 3.12 embeddable runtime, installs the dependenci
 **2. Get the code and dependencies**
 
 ```powershell
-git clone https://github.com/<you>/feishu-comment-bot.git
-cd feishu-comment-bot
+git clone https://github.com/Aries-441/margin-reply.git
+cd margin-reply
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
@@ -115,7 +115,7 @@ You should see a line ending with `connected to wss://msg-frontier.feishu.cn/...
 powershell -NoProfile -ExecutionPolicy Bypass -File install-task.ps1
 ```
 
-Registers the scheduled task `FeishuDocClarifier` (starts at logon, single instance, automatic restart with backoff).
+Registers the scheduled task `MarginReply` (starts at logon, single instance, automatic restart with backoff).
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File uninstall-task.ps1   # stop and delete the task
@@ -130,7 +130,7 @@ This repo ships a deployment manual written **for an AI coding agent**, with a v
 Paste this into Claude Code, Codex or ChatGPT with file access:
 
 ```text
-Deploy https://github.com/<you>/feishu-comment-bot on this Windows machine.
+Deploy https://github.com/Aries-441/margin-reply on this Windows machine.
 Read docs/deploy-with-ai.md and follow it phase by phase.
 Do the terminal work yourself, but let me handle the Feishu console steps and
 let me put the app secret into .env myself — never print secrets.
@@ -146,7 +146,7 @@ Everything is read from `.env` (or the environment, which wins):
 | `FEISHU_COMMENT_BOT_APP_ID` | — | Feishu app ID (`cli_...`) |
 | `FEISHU_COMMENT_BOT_APP_SECRET` | — | Feishu app secret |
 | `FEISHU_COMMENT_BOT_AGENT_BACKEND` | `deepseek` | `deepseek`, or `claude` / `codex` / any command |
-| `FEISHU_COMMENT_BOT_AGENT_COMMAND` | `claude` | Command used when the backend is a local CLI (`.exe` only) |
+| `FEISHU_COMMENT_BOT_AGENT_COMMAND` | Backend name | Optional command override for a local CLI (`.exe` only) |
 | `FEISHU_COMMENT_BOT_DEEPSEEK_API_KEY` | — | Required when backend is `deepseek` |
 | `FEISHU_COMMENT_BOT_DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
 | `FEISHU_COMMENT_BOT_TRUST_MODE` | `owner` | `owner` = document owner only; `allowlist` = listed open_ids only; `any` = anyone |
@@ -185,9 +185,9 @@ $env:FEISHU_COMMENT_BOT_AGENT_COMMAND='claude'
 ## Logs and tests
 
 - `logs\bot.log` — bot log (UTF-8, 5 MB × 3 rotation). Crashes and Feishu API errors land here.
-- `logs\runner.log` — start / exit / retry records written by `run.ps1`.
-- With the installer, logs live in `%LocalAppData%\FeishuDocClarifier\logs` (also reachable from the Start menu).
-- Tests: `.\.venv\Scripts\python.exe -m unittest -v test_bot` (27 tests, no network).
+- `logs\runner.log` — start / exit / retry records written by `supervisor.py`.
+- With the installer, open **Start → 页边答 → 查看页边答日志** to view logs in `%LocalAppData%\MarginReply\logs`.
+- Run the offline tests with `.\.venv\Scripts\python.exe -m unittest discover -v`.
 
 ## Docs
 

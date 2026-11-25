@@ -4,7 +4,7 @@ This page is written **for an AI coding agent** (Claude Code, Codex, ChatGPT wit
 
 Target environment: Windows 10/11, PowerShell 5.1, Python 3.12.
 
-> Deploying from a release build? The `FeishuDocClarifier-Setup-*.exe` installer does Phases 1 and 5 itself and needs no Python on the target machine — see [README.zh-CN.md](../README.zh-CN.md#安装包推荐无需-python). The phases below are the source-based path; do not mix the two on one machine.
+> Deploying from a release build? The `MarginReply-Setup-0.1.0.exe` installer does Phases 1 and 5 itself and needs no Python on the target machine — see [README.zh-CN.md](../README.zh-CN.md#安装包推荐无需-python). The phases below are the source-based path; do not mix the two on one machine.
 
 ## Ground rules
 
@@ -38,10 +38,10 @@ curl.exe -s -o NUL -w "%{http_code}`n" https://open.feishu.cn/open-apis/
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest -v test_bot
+.\.venv\Scripts\python.exe -m unittest discover -v
 ```
 
-**Acceptance:** `Ran 27 tests ... OK`. If tests fail, the environment is wrong or the repository is dirty — do not proceed.
+**Acceptance:** The offline test suite finishes with `OK`. If a test fails, inspect its traceback before deployment.
 
 ## Phase 2 — Feishu app (human)
 
@@ -92,7 +92,7 @@ Stop the foreground process (`Ctrl+C` or kill the `python.exe` running `bot.py`)
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File install-task.ps1
 Start-Sleep -Seconds 40
-Get-ScheduledTask -TaskName FeishuDocClarifier | Select-Object State
+Get-ScheduledTask -TaskName MarginReply | Select-Object State
 Get-Content logs\runner.log -Tail 3
 ```
 
@@ -105,12 +105,12 @@ Get-Content logs\runner.log -Tail 3
 Operational commands:
 
 ```powershell
-Stop-ScheduledTask -TaskName FeishuDocClarifier
+Stop-ScheduledTask -TaskName MarginReply
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
   Where-Object { $_.CommandLine -like '*bot.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
-Start-ScheduledTask -TaskName FeishuDocClarifier
-Unregister-ScheduledTask -TaskName FeishuDocClarifier -Confirm:$false
+Start-ScheduledTask -TaskName MarginReply
+Unregister-ScheduledTask -TaskName MarginReply -Confirm:$false
 ```
 
 ## Final checklist
@@ -118,11 +118,11 @@ Unregister-ScheduledTask -TaskName FeishuDocClarifier -Confirm:$false
 Report each line as pass/fail:
 
 - [ ] Python environment created, dependencies installed
-- [ ] `unittest` — 27 tests OK
+- [ ] `unittest` — offline suite passes
 - [ ] `.env` filled (values not printed anywhere)
 - [ ] Foreground run reached `connected to wss://`
 - [ ] A real @-mention got a correct reply in the thread
-- [ ] Scheduled task `FeishuDocClarifier` is `Running`
+- [ ] Scheduled task `MarginReply` is `Running`
 - [ ] Bot process restarts after being killed
 - [ ] No secret, `.env`, `.seen_events.json`, `.venv/` or `logs/` staged in git
 
